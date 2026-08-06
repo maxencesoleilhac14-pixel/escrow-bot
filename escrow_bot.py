@@ -45,6 +45,44 @@ scam_list     : list = []
 user_first_free: set = set()   # users ayant déjà utilisé leur 1ère session offerte
 _app          = None   # référence globale à l'Application Telegram (pour le webhook IPN)
 
+STATE_FILE = os.environ.get("STATE_FILE", "bot_state.json")
+
+def save_state():
+    """Sauvegarde tout l'état (sessions, users, scam list...) pour survivre aux redémarrages."""
+    try:
+        payload = {
+            "sessions":        sessions,
+            "user_sessions":   user_sessions,
+            "user_lang":       user_lang,
+            "all_users":       list(all_users),
+            "scam_list":       scam_list,
+            "user_first_free": list(user_first_free),
+            "bot_online":      bot_online,
+        }
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"save_state error: {e}")
+
+def load_state():
+    """Restaure l'état au démarrage (après redémarrage Railway par ex)."""
+    global bot_online
+    try:
+        if not os.path.exists(STATE_FILE):
+            return
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        sessions.update(d.get("sessions", {}))
+        user_sessions.update(d.get("user_sessions", {}))
+        user_lang.update(d.get("user_lang", {}))
+        all_users.update(d.get("all_users", []))
+        scam_list.extend(d.get("scam_list", []))
+        user_first_free.update(d.get("user_first_free", []))
+        bot_online = d.get("bot_online", True)
+        logger.info(f"État restauré : {len(sessions)} sessions, {len(all_users)} users")
+    except Exception as e:
+        logger.error(f"load_state error: {e}")
+
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -377,6 +415,7 @@ async def _payment_validated(s: dict, bot):
     await bot.send_message(chat_id=ADMIN_ID,
         text=f"✅ *Paiement validé !*\n`{s['code']}`\n\n{session_summary(s)}",
         parse_mode="Markdown")
+    save_state()
 
 def store_delivery(msg):
     if msg.document: return {"type":"document","file_id":msg.document.file_id}
@@ -466,7 +505,9 @@ async def oxapay_polling(context: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    all_users.add(uid)
+    if uid not in all_users:
+        all_users.add(uid)
+        save_state()
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🇫🇷  Français", callback_data="lang_fr")],
         [InlineKeyboardButton("🇬🇧  English",  callback_data="lang_en")],
@@ -479,6 +520,7 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     uid  = q.from_user.id; name = q.from_user.first_name or ""
     user_lang[uid] = q.data.replace("lang_","")
+    save_state()
     if not bot_online and uid != ADMIN_ID:
         await q.edit_message_text(t(uid,"bot_offline"), parse_mode="Markdown")
         return ConversationHandler.END
@@ -506,6 +548,7 @@ async def cmd_addscam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) < 3:
         await update.message.reply_text("Usage: `/addscam @pseudo ID raison`", parse_mode="Markdown"); return
     scam_list.append({"username":args[0],"id":args[1],"reason":" ".join(args[2:]),"date":datetime.now().strftime("%d/%m/%Y")})
+    save_state()
     await update.message.reply_text(f"✅ *{args[0]}* ajouté à la Scam List.", parse_mode="Markdown")
 
 async def cmd_removescam(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -514,6 +557,7 @@ async def cmd_removescam(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: `/removescam @pseudo`", parse_mode="Markdown"); return
     before = len(scam_list)
     scam_list[:] = [e for e in scam_list if e["username"] != context.args[0]]
+    save_state()
     msg = f"✅ *{context.args[0]}* retiré." if len(scam_list) < before else f"❌ *{context.args[0]}* non trouvé."
     await update.message.reply_text(msg, parse_mode="Markdown")
 
@@ -655,6 +699,7 @@ async def finalize_session(uid, user, context, reply_fn):
     }
     sessions[code]     = s
     user_sessions[uid] = code
+    save_state()
     await reply_fn(t(uid,"session_created",summary=session_summary(s),code=code), parse_mode="Markdown")
     await context.bot.send_message(chat_id=ADMIN_ID,
         text=f"🆕 *Nouvelle session !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n{session_summary(s)}",
@@ -705,6 +750,7 @@ async def seller_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=ADMIN_ID,
                 text=f"👥 *Vendeur rejoint — session OFFERTE !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n{session_summary(s)}",
                 parse_mode="Markdown")
+        save_state()
         return ConversationHandler.END
 
     total = fmt(s["total_price"])
@@ -729,6 +775,7 @@ async def seller_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=ADMIN_ID,
         text=f"👥 *Vendeur rejoint !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n{session_summary(s)}",
         parse_mode="Markdown")
+    save_state()
     return ConversationHandler.END
 
 # ══════════════════════════════════════════════
@@ -815,6 +862,7 @@ async def _send_refund_to_admin(uid, code, s, crypto_addr, context):
     user_sessions.pop(uid, None)
     if s.get("seller_id") and user_sessions.get(s["seller_id"]) == code:
         user_sessions.pop(s["seller_id"], None)
+    save_state()
 
 async def admin_refunded(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -880,6 +928,7 @@ async def admin_pay_rej(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not s: await q.edit_message_text("❌ Session introuvable."); return
     s["status"] = "⏳ En attente du paiement acheteur"
     await context.bot.send_message(chat_id=s["buyer_id"], text=t(s["buyer_id"],"payment_rejected"), parse_mode="Markdown")
+    save_state()
     await q.edit_message_text(f"❌ Paiement rejeté — `{code}`.", parse_mode="Markdown")
 
 async def cmd_cryptook(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -909,6 +958,7 @@ async def seller_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     s["delivery_file"] = di
     s["status"]        = "🔍 En attente validation livraison"
+    save_state()
     await msg.forward(chat_id=ADMIN_ID)
     await context.bot.send_message(chat_id=ADMIN_ID,
         text=f"📦 *Livraison reçue !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n{session_summary(s)}",
@@ -940,11 +990,13 @@ async def handle_exchange_delivery(update: Update, context: ContextTypes.DEFAULT
         return
 
     s[key] = di
+    save_state()
     await msg.forward(chat_id=ADMIN_ID)
     await msg.reply_text(t(uid,"exchange_deposited"), parse_mode="Markdown")
 
     if s.get("buyer_delivery") and s.get("seller_delivery"):
         s["status"] = "🔍 Échange en attente de validation"
+        save_state()
         await context.bot.send_message(chat_id=ADMIN_ID,
             text=f"🔁 *Échange — les 2 tech sont déposées !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n{session_summary(s)}",
             parse_mode="Markdown",
@@ -983,6 +1035,7 @@ async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Échange → pas de retrait, session clôturée
         s["status"] = "✅ Transaction complète"
         await context.bot.send_message(chat_id=suid, text=t(suid,"tx_complete_seller"), parse_mode="Markdown")
+    save_state()
     await q.edit_message_text(f"✅ Livraison validée — `{code}`.", parse_mode="Markdown")
 
 async def admin_ex_ok(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1003,6 +1056,7 @@ async def admin_ex_ok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=suid, text=t(suid,"tx_complete_seller"), parse_mode="Markdown")
 
     s["status"] = "✅ Transaction complète"
+    save_state()
     await q.edit_message_text(f"✅ Échange validé — `{code}`.", parse_mode="Markdown")
 
 async def admin_ex_rej(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1015,6 +1069,7 @@ async def admin_ex_rej(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s["status"] = "⏳ En attente des livraisons"
     s["buyer_delivery"]  = None
     s["seller_delivery"] = None
+    save_state()
     await context.bot.send_message(chat_id=s["buyer_id"],  text=t(s["buyer_id"],"delivery_rejected"), parse_mode="Markdown")
     await context.bot.send_message(chat_id=s["seller_id"], text=t(s["seller_id"],"delivery_rejected"), parse_mode="Markdown")
     await q.edit_message_text(f"❌ Échange rejeté — `{code}`.", parse_mode="Markdown")
@@ -1028,6 +1083,7 @@ async def admin_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not s: await q.edit_message_text("❌ Session introuvable."); return
     s["status"] = "⏳ En attente de la livraison vendeur"
     await context.bot.send_message(chat_id=s["seller_id"],text=t(s["seller_id"],"delivery_rejected"),parse_mode="Markdown")
+    save_state()
     await q.edit_message_text(f"❌ Livraison rejetée — `{code}`.", parse_mode="Markdown")
 
 # ══════════════════════════════════════════════
@@ -1045,6 +1101,7 @@ async def seller_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     address = update.message.text.strip()
     s["withdraw_address"] = address
     s["status"]           = "⏳ Retrait en cours"
+    save_state()
     ml = "🪙 Crypto" if s["payment_method"]=="Crypto" else "💳 PayPal"
 
     await update.message.reply_text(t(uid,"withdraw_ok",amount=fmt(s["seller_price"]),method=ml,address=esc(address)),parse_mode="Markdown")
@@ -1065,6 +1122,7 @@ async def admin_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s["status"] = "✅ Transaction complète"
     suid = s["seller_id"]
     await context.bot.send_message(chat_id=suid,text=t(suid,"payout_sent",amount=fmt(s["seller_price"])),parse_mode="Markdown")
+    save_state()
     await q.edit_message_text(f"✅ Session `{code}` clôturée.", parse_mode="Markdown")
 
 # ══════════════════════════════════════════════
@@ -1127,6 +1185,7 @@ async def toggle_online(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("❌", show_alert=True); return
     await q.answer()
     bot_online = not bot_online
+    save_state()
     msg_key = "announce_on" if bot_online else "announce_off"
     for uid in list(all_users):
         try:
@@ -1219,6 +1278,7 @@ async def back_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     global _app
+    load_state()
     app = Application.builder().token(BOT_TOKEN).build()
     _app = app
 
