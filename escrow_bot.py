@@ -42,6 +42,7 @@ user_lang     : dict = {}
 sessions      : dict = {}
 user_sessions : dict = {}
 scam_list     : list = []
+user_first_free: set = set()   # users ayant déjà utilisé leur 1ère session offerte
 _app          = None   # référence globale à l'Application Telegram (pour le webhook IPN)
 
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
@@ -69,9 +70,15 @@ LANG = {
 "step1":            "🛒 *Créer une session — Étape 1/5*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nQuel est le nom/description de l'article ?",
 "step2":            "📬 *Étape 2/5 — Type de livraison*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ Article : *{item}*\n\nQuel type de livraison attends-tu ?",
 "step3":            "💵 *Étape 3/5 — Prix*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ Livraison : *{dtype}*\n\nÀ quel montant le vendeur doit-il être payé ?\n💡 _Ex: 50 ou 49.99_\n⚠️ _10% de frais ajoutés automatiquement_",
-"step4":            "💳 *Étape 4/5 — Paiement*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n💰 *Récapitulatif :*\n  💵 Prix vendeur  → `{seller} €`\n  📊 Frais (10%)   → `{fees} €`\n  ━━━━━━━━━━━━━━━━━\n  💳 *Total        → `{total} €`*\n\nQuelle méthode de paiement ?",
+"step4":            "💳 *Étape 4/5 — Paiement*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n💰 *Récapitulatif :*\n  💵 Prix vendeur  → `{seller} €`\n  📊 {fee_label}   → `{fees} €`\n  ━━━━━━━━━━━━━━━━━\n  💳 *Total        → `{total} €`*\n\nQuelle méthode de paiement ?",
 "step5":            "📋 *Étape 5/5 — Conditions*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n⚖️ Définis les conditions de la transaction.\nElles seront inscrites sur le *contrat de session*.\n\n✍️ Écris tes conditions ou clique *Ignorer*.\n💡 _Conditions convenues en amont avec le vendeur en privé._",
 "btn_skip_cond":    "⏩  Ignorer les conditions",
+"btn_exchange":     "🔁  Échange de tech — frais 5€",
+"free_ready":       "🔔 *Le vendeur a rejoint ta session !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🆓 *Ta session est OFFERTE — aucun paiement requis !*\n🧑‍💼 *Vendeur :* {seller}\n\n📦 Le vendeur va envoyer la livraison directement.",
+"tx_complete_seller":"🎉 *Échange terminé !*\nMerci d'avoir utilisé *EscrowBot* ! 🙌",
+"exchange_deposit": "📦 *Échange — Dépose ta tech !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nEnvoie ta tech (fichier, lien, image ou texte).\n⏳ On attend la tech des 2 côtés, puis l'admin valide l'échange.",
+"exchange_deposited":"📤 *Ta tech est déposée !*\n⏳ En attente de la tech de l'autre côté…",
+"exchange_ready":   "🔁 *Échange prêt !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nLes 2 tech sont déposées.\n🔍 L'admin valide l'échange.",
 "session_created":  "🎉 *Session créée !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n{summary}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📤 *Code à partager au vendeur :*\n\n```\n{code}\n```\n⏳ _En attente du vendeur…_",
 "join_prompt":      "🔑 *Rejoindre une session*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nEntre le code de session :",
 "code_not_found":   "❌ *Code introuvable !*\nVérifie le code et réessaie.",
@@ -125,9 +132,15 @@ LANG = {
 "step1":            "🛒 *Create a session — Step 1/5*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nWhat is the item name/description?",
 "step2":            "📬 *Step 2/5 — Delivery type*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ Item: *{item}*\nWhat delivery type do you expect?",
 "step3":            "💵 *Step 3/5 — Price*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ Delivery: *{dtype}*\nHow much should the seller be paid?\n💡 _Ex: 50 or 49.99_\n⚠️ _10% fee added automatically_",
-"step4":            "💳 *Step 4/5 — Payment*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n💰 *Summary:*\n  💵 Seller price → `{seller} €`\n  📊 Fee (10%)    → `{fees} €`\n  ━━━━━━━━━━━━━━━━━\n  💳 *Total       → `{total} €`*\nPayment method?",
+"step4":            "💳 *Step 4/5 — Payment*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n💰 *Summary:*\n  💵 Seller price → `{seller} €`\n  📊 {fee_label}    → `{fees} €`\n  ━━━━━━━━━━━━━━━━━\n  💳 *Total       → `{total} €`*\nPayment method?",
 "step5":            "📋 *Step 5/5 — Conditions*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚖️ Set the conditions for this transaction.\nThey'll be written on the *session contract*.\n✍️ Write your conditions or click *Skip.*\n💡 _Conditions must be agreed upon in advance in private._",
 "btn_skip_cond":    "⏩  Skip conditions",
+"btn_exchange":     "🔁  Tech exchange — €5 fee",
+"free_ready":       "🔔 *Seller joined your session!*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🆓 *Your session is FREE — no payment required!*\n🧑‍💼 *Seller:* {seller}\n\n📦 The seller will send the delivery directly.",
+"tx_complete_seller":"🎉 *Exchange complete!*\nThank you for using *EscrowBot*! 🙌",
+"exchange_deposit": "📦 *Exchange — Deposit your tech!*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nSend your tech (file, link, image or text).\n⏳ Waiting for both tech items, then admin validates.",
+"exchange_deposited":"📤 *Your tech is deposited!*\n⏳ Waiting for the other side…",
+"exchange_ready":   "🔁 *Exchange ready!*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nBoth tech items are deposited.\n🔍 Admin validates the exchange.",
 "session_created":  "🎉 *Session created!*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{summary}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📤 *Code for the seller:*\n\n```\n{code}\n```\n⏳ _Waiting for seller…_",
 "join_prompt":      "🔑 *Join a session*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nEnter the session code:",
 "code_not_found":   "❌ *Code not found!*\nCheck and try again.",
@@ -181,9 +194,15 @@ LANG = {
 "step1":            "🛒 *Создать сессию — Шаг 1/5*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nКакой товар вы покупаете?",
 "step2":            "📬 *Шаг 2/5 — Тип доставки*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ Товар: *{item}*\nКакой тип доставки ожидаете?",
 "step3":            "💵 *Шаг 3/5 — Цена*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n✅ Доставка: *{dtype}*\nСколько получит продавец?\n💡 _Пример: 50 или 49.99_\n⚠️ _Комиссия 10% добавится автоматически_",
-"step4":            "💳 *Шаг 4/5 — Оплата*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n💰 *Итого:*\n  💵 Продавец  → `{seller} €`\n  📊 Комиссия  → `{fees} €`\n  ━━━━━━━━━━━━━━━━━\n  💳 *Итого    → `{total} €`*\nСпособ оплаты?",
+"step4":            "💳 *Шаг 4/5 — Оплата*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n💰 *Итого:*\n  💵 Продавец  → `{seller} €`\n  📊 {fee_label}  → `{fees} €`\n  ━━━━━━━━━━━━━━━━━\n  💳 *Итого    → `{total} €`*\nСпособ оплаты?",
 "step5":            "📋 *Шаг 5/5 — Условия*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚖️ Укажите условия сделки.\nОни будут записаны в *контракт сессии*.\n✍️ Напишите условия или нажмите *Пропустить.*\n💡 _Условия согласовываются заранее._",
 "btn_skip_cond":    "⏩  Пропустить условия",
+"btn_exchange":     "🔁  Обмен техникой — 5€",
+"free_ready":       "🔔 *Продавец присоединился!*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🆓 *Ваша сессия БЕСПЛАТНА — оплата не требуется!*\n🧑‍💼 *Продавец:* {seller}\n\n📦 Продавец отправит товар напрямую.",
+"tx_complete_seller":"🎉 *Обмен завершён!*\nСпасибо за использование *EscrowBot*! 🙌",
+"exchange_deposit": "📦 *Обмен — Отправьте свою технику!*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nОтправьте технику (файл, ссылку, фото или текст).\n⏳ Ждём технику с обеих сторон, затем админ подтвердит.",
+"exchange_deposited":"📤 *Ваша техника отправлена!*\n⏳ Ожидание техники с другой стороны…",
+"exchange_ready":   "🔁 *Обмен готов!*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nТехника получена с обеих сторон.\n🔍 Админ подтверждает обмен.",
 "session_created":  "🎉 *Сессия создана!*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{summary}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📤 *Код для продавца:*\n\n```\n{code}\n```\n⏳ _Ожидание продавца…_",
 "join_prompt":      "🔑 *Присоединиться к сессии*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nВведите код сессии:",
 "code_not_found":   "❌ *Код не найден!*\nПроверьте и попробуйте снова.",
@@ -246,23 +265,37 @@ def gen_code(username: str) -> str:
 def fmt(v: float) -> str:
     return f"{v:.2f}"
 
+def esc(s) -> str:
+    """Échappe les caractères Markdown pour éviter les erreurs de parse (boutons morts)."""
+    return str(s).replace("_", r"\_").replace("*", r"\*").replace("[", r"\[").replace("`", r"\`")
+
+def compute_fee(uid: int, sp: float, is_exchange: bool) -> tuple[float, str]:
+    """Retourne (frais, label). 1ère session de chaque user = offerte."""
+    if uid not in user_first_free:
+        user_first_free.add(uid)
+        return 0.0, "OFFERT 🎁"
+    if is_exchange:
+        return 5.0, "Frais fixes (5€)"
+    return sp * FEES_PCT, "Frais (10%)"
+
 def session_summary(s: dict) -> str:
     de = {"Lien URL":"🔗","PDF":"📄","Image":"🖼️","Texte / Code":"📝"}.get(s.get("delivery_type",""),"📦")
     pe = "🪙" if s.get("payment_method")=="Crypto" else "💳"
     cond = s.get("conditions","")
-    cl   = f"\n📋 *Conditions :* _{cond}_" if cond else ""
+    cl   = f"\n📋 *Conditions :* _{esc(cond)}_" if cond else ""
     return (
         f"╔══════════════════════════╗\n"
         f"        📋 *SESSION ESCROW*\n"
         f"╚══════════════════════════╝\n\n"
         f"🔑 *Code :* `{s['code']}`\n"
-        f"🛒 *Article :* {s['item_name']}\n"
+        f"🛒 *Article :* {esc(s['item_name'])}\n"
         f"{de} *Livraison :* {s['delivery_type']}\n"
         f"💵 *Prix vendeur :* `{fmt(s['seller_price'])} €`\n"
         f"💰 *Total (frais inclus) :* `{fmt(s['total_price'])} €`\n"
+        f"💸 *Frais :* {esc(s.get('fee_label',''))}\n"
         f"{pe} *Paiement :* {s['payment_method']}\n"
-        f"👤 *Acheteur :* {s.get('buyer_name','?')} | ID: `{s.get('buyer_id','?')}`\n"
-        f"🧑‍💼 *Vendeur :* {s.get('seller_name','⏳')} | ID: `{s.get('seller_id','—')}`\n"
+        f"👤 *Acheteur :* {esc(s.get('buyer_name','?'))} | ID: `{s.get('buyer_id','?')}`\n"
+        f"🧑‍💼 *Vendeur :* {esc(s.get('seller_name','⏳'))} | ID: `{s.get('seller_id','—')}`\n"
         f"📊 *Statut :* {s['status']}\n"
         f"🕒 *Créée le :* {s.get('created_at','?')[:10]}"
         f"{cl}\n"
@@ -328,6 +361,37 @@ async def check_oxapay_payment(track_id: str) -> bool:
         logger.error(f"OxaPay inquiry error: {e}")
     return False
 
+async def _payment_validated(s: dict, bot):
+    """Après paiement validé : gère vente (1 livraison) et échange (2 tech)."""
+    buid = s["buyer_id"]; suid = s["seller_id"]
+    if s.get("is_exchange"):
+        s["status"] = "⏳ En attente des livraisons"
+        await bot.send_message(chat_id=suid, text=t(suid,"exchange_deposit"), parse_mode="Markdown")
+        await bot.send_message(chat_id=buid, text=t(buid,"exchange_deposit"), parse_mode="Markdown")
+    else:
+        s["status"] = "⏳ En attente de la livraison vendeur"
+        await bot.send_message(chat_id=buid, text=t(buid,"payment_ok_buyer"), parse_mode="Markdown")
+        await bot.send_message(chat_id=suid,
+            text=t(suid, "payment_ok_seller", item=esc(s["item_name"]), dtype=s["delivery_type"]),
+            parse_mode="Markdown")
+    await bot.send_message(chat_id=ADMIN_ID,
+        text=f"✅ *Paiement validé !*\n`{s['code']}`\n\n{session_summary(s)}",
+        parse_mode="Markdown")
+
+def store_delivery(msg):
+    if msg.document: return {"type":"document","file_id":msg.document.file_id}
+    if msg.photo:    return {"type":"photo","file_id":msg.photo[-1].file_id}
+    if msg.text:     return {"type":"text","content":msg.text}
+    return None
+
+async def _send_delivery_to(bot, chat_id: int, di: dict, cap: str):
+    if di.get("type")=="document":
+        await bot.send_document(chat_id=chat_id,document=di["file_id"],caption=cap,parse_mode="Markdown")
+    elif di.get("type")=="photo":
+        await bot.send_photo(chat_id=chat_id,photo=di["file_id"],caption=cap,parse_mode="Markdown")
+    elif di.get("type")=="text":
+        await bot.send_message(chat_id=chat_id,text=f"{cap}\n\n📝 *Contenu :*\n\n{esc(di['content'])}",parse_mode="Markdown")
+
 async def _validate_crypto_payment(code: str, bot):
     """Valide un paiement crypto et notifie toutes les parties."""
     s = sessions.get(code)
@@ -336,21 +400,7 @@ async def _validate_crypto_payment(code: str, bot):
     if s.get("payment_method") != "Crypto":
         return
 
-    s["status"] = "⏳ En attente de la livraison vendeur"
-    buid = s["buyer_id"]
-    suid = s["seller_id"]
-
-    await bot.send_message(chat_id=buid, text=t(buid, "payment_ok_buyer"), parse_mode="Markdown")
-    await bot.send_message(
-        chat_id=suid,
-        text=t(suid, "payment_ok_seller", item=s["item_name"], dtype=s["delivery_type"]),
-        parse_mode="Markdown"
-    )
-    await bot.send_message(
-        chat_id=ADMIN_ID,
-        text=f"✅ *Paiement crypto validé automatiquement !*\n`{code}`\n\n{session_summary(s)}",
-        parse_mode="Markdown"
-    )
+    await _payment_validated(s, bot)
     logger.info(f"OxaPay payment validated: {code}")
 
 async def oxapay_ipn_handler(request: web.Request) -> web.Response:
@@ -432,7 +482,7 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not bot_online and uid != ADMIN_ID:
         await q.edit_message_text(t(uid,"bot_offline"), parse_mode="Markdown")
         return ConversationHandler.END
-    await q.edit_message_text(t(uid,"welcome",name=name), parse_mode="Markdown", reply_markup=main_kb(uid))
+    await q.edit_message_text(t(uid,"welcome",name=esc(name)), parse_mode="Markdown", reply_markup=main_kb(uid))
     return ConversationHandler.END
 
 # ══════════════════════════════════════════════
@@ -447,7 +497,7 @@ async def show_scam_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(t(uid,"scamlist_empty"), parse_mode="Markdown", reply_markup=kb); return
     txt = t(uid,"scamlist_title")
     for i, e in enumerate(scam_list, 1):
-        txt += f"*{i}.* 👤 {e['username']} | ID: `{e['id']}`\n   📅 {e['date']}\n   ❗ _{e['reason']}_\n\n"
+        txt += f"*{i}.* 👤 {esc(e['username'])} | ID: `{esc(e['id'])}`\n   📅 {esc(e['date'])}\n   ❗ _{esc(e['reason'])}_\n\n"
     await q.edit_message_text(txt, parse_mode="Markdown", reply_markup=kb)
 
 async def cmd_addscam(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -496,8 +546,9 @@ async def buy_item_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📄  Fichier PDF",          callback_data="del_pdf")],
         [InlineKeyboardButton("🖼️  Image / Photo",        callback_data="del_image")],
         [InlineKeyboardButton("📝  Texte / Code / Accès", callback_data="del_text")],
+        [InlineKeyboardButton(t(uid,"btn_exchange"),      callback_data="mode_exchange")],
     ])
-    await update.message.reply_text(t(uid,"step2",item=context.user_data["item_name"]),
+    await update.message.reply_text(t(uid,"step2",item=esc(context.user_data["item_name"])),
         parse_mode="Markdown", reply_markup=kb)
     return BUY_DELIVERY_TYPE
 
@@ -515,15 +566,46 @@ async def buy_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text(t(uid,"invalid_amount"), parse_mode="Markdown")
         return BUY_PRICE
-    total = sp * (1 + FEES_PCT)
+    fee, fee_label = compute_fee(uid, sp, False)
+    total = sp + fee
     context.user_data["seller_price"] = sp
     context.user_data["total_price"]  = total
+    context.user_data["fee_label"]    = fee_label
+    context.user_data["is_exchange"]  = False
+    if total <= 0:
+        context.user_data["payment_method"] = "Gratuit"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(t(uid,"btn_skip_cond"), callback_data="skip_conditions")]])
+        await update.message.reply_text(t(uid,"step5"), parse_mode="Markdown", reply_markup=kb)
+        return BUY_CONDITIONS
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🪙  Crypto (Multi-devises)", callback_data="pay_crypto")],
         [InlineKeyboardButton("💳  PayPal",                 callback_data="pay_paypal")],
     ])
     await update.message.reply_text(
-        t(uid,"step4",seller=fmt(sp),fees=fmt(sp*FEES_PCT),total=fmt(total)),
+        t(uid,"step4",seller=fmt(sp),fees=fmt(fee),total=fmt(total),fee_label=fee_label),
+        parse_mode="Markdown", reply_markup=kb)
+    return BUY_PAYMENT_METHOD
+
+async def buy_exchange_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer(); uid = q.from_user.id
+    fee, fee_label = compute_fee(uid, 0.0, True)
+    total = fee
+    context.user_data["delivery_type"] = "Échange de tech"
+    context.user_data["seller_price"]  = 0.0
+    context.user_data["total_price"]   = total
+    context.user_data["fee_label"]     = fee_label
+    context.user_data["is_exchange"]   = True
+    if total <= 0:
+        context.user_data["payment_method"] = "Gratuit"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(t(uid,"btn_skip_cond"), callback_data="skip_conditions")]])
+        await q.edit_message_text(t(uid,"step5"), parse_mode="Markdown", reply_markup=kb)
+        return BUY_CONDITIONS
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🪙  Crypto (Multi-devises)", callback_data="pay_crypto")],
+        [InlineKeyboardButton("💳  PayPal",                 callback_data="pay_paypal")],
+    ])
+    await q.edit_message_text(
+        t(uid,"step4",seller=fmt(0.0),fees=fmt(fee),total=fmt(total),fee_label=fee_label),
         parse_mode="Markdown", reply_markup=kb)
     return BUY_PAYMENT_METHOD
 
@@ -556,7 +638,9 @@ async def finalize_session(uid, user, context, reply_fn):
         "delivery_type":  ud["delivery_type"],
         "seller_price":   ud["seller_price"],
         "total_price":    ud["total_price"],
-        "payment_method": ud["payment_method"],
+        "payment_method": ud.get("payment_method", "Gratuit"),
+        "is_exchange":   ud.get("is_exchange", False),
+        "fee_label":     ud.get("fee_label", "Frais (10%)"),
         "conditions":     ud.get("conditions",""),
         "buyer_id":       uid,
         "buyer_name":     uname,
@@ -607,6 +691,22 @@ async def seller_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(t(uid,"joined_ok",summary=session_summary(s)), parse_mode="Markdown")
 
     buid  = s["buyer_id"]
+
+    # Session offerte (1ère session gratuite) → pas de paiement requis
+    if s["total_price"] <= 0:
+        if s.get("is_exchange"):
+            await _payment_validated(s, context.bot)
+        else:
+            s["status"] = "⏳ En attente de la livraison vendeur"
+            await context.bot.send_message(chat_id=buid, text=t(buid,"free_ready",seller=esc(s["seller_name"])), parse_mode="Markdown")
+            await context.bot.send_message(chat_id=s["seller_id"],
+                text=t(s["seller_id"],"payment_ok_seller",item=esc(s["item_name"]),dtype=s["delivery_type"]),
+                parse_mode="Markdown")
+            await context.bot.send_message(chat_id=ADMIN_ID,
+                text=f"👥 *Vendeur rejoint — session OFFERTE !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n{session_summary(s)}",
+                parse_mode="Markdown")
+        return ConversationHandler.END
+
     total = fmt(s["total_price"])
 
     if s["payment_method"] == "Crypto":
@@ -614,15 +714,15 @@ async def seller_enter_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if pay_link:
             s["pay_link"]  = pay_link
             s["track_id"]  = track_id
-            pay_txt = t(buid,"pay_crypto_msg",seller=s["seller_name"],total=total)
+            pay_txt = t(buid,"pay_crypto_msg",seller=esc(s["seller_name"]),total=total)
             kb = payment_kb(buid, code, pay_link, "Crypto", total)
         else:
             pay_txt = t(buid,"pay_link_error")
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("💸  Remboursement", callback_data=f"refund_ask_{code}")]])
     else:
-        pay_link = f"{PAYPAL_URL}/{total}EUR"
+        pay_link = f"{PAYPAL_URL}/{total}"
         s["pay_link"] = pay_link
-        pay_txt = t(buid,"pay_paypal_msg",seller=s["seller_name"],total=total)
+        pay_txt = t(buid,"pay_paypal_msg",seller=esc(s["seller_name"]),total=total)
         kb = payment_kb(buid, code, pay_link, "PayPal", total)
 
     await context.bot.send_message(chat_id=buid, text=pay_txt, parse_mode="Markdown", reply_markup=kb)
@@ -658,9 +758,9 @@ async def back_to_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pay_link = s.get("pay_link","")
     method   = s.get("payment_method","")
     if method == "Crypto":
-        pay_txt = t(uid,"pay_crypto_msg",seller=s["seller_name"],total=total)
+        pay_txt = t(uid,"pay_crypto_msg",seller=esc(s["seller_name"]),total=total)
     else:
-        pay_txt = t(uid,"pay_paypal_msg",seller=s["seller_name"],total=total)
+        pay_txt = t(uid,"pay_paypal_msg",seller=esc(s["seller_name"]),total=total)
     kb = payment_kb(uid, code, pay_link, method, total)
     await q.edit_message_text(pay_txt, parse_mode="Markdown", reply_markup=kb)
 
@@ -696,11 +796,11 @@ async def handle_refund_crypto_addr(update: Update, context: ContextTypes.DEFAUL
 
 async def _send_refund_to_admin(uid, code, s, crypto_addr, context):
     proof     = s.get("payment_proof")
-    addr_line = f"\n🪙 *Adresse remboursement :* `{crypto_addr}`" if crypto_addr else ""
+    addr_line = f"\n🪙 *Adresse remboursement :* `{esc(crypto_addr)}`" if crypto_addr else ""
     admin_txt = (
         f"💸 *DEMANDE DE REMBOURSEMENT !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{session_summary(s)}\n"
-        f"👤 {s['buyer_name']} | ID: `{s['buyer_id']}`\n"
+        f"👤 {esc(s['buyer_name'])} | ID: `{s['buyer_id']}`\n"
         f"💳 Méthode : {s['payment_method']}"
         f"{addr_line}\n\n"
         f"⚠️ _Rembourser uniquement sur le compte d'origine._"
@@ -767,9 +867,7 @@ async def admin_pay_ok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = q.data.replace("admin_pay_ok_","")
     s    = sessions.get(code)
     if not s: await q.edit_message_text("❌ Session introuvable."); return
-    s["status"] = "⏳ En attente de la livraison vendeur"
-    await context.bot.send_message(chat_id=s["buyer_id"],  text=t(s["buyer_id"],"payment_ok_buyer"), parse_mode="Markdown")
-    await context.bot.send_message(chat_id=s["seller_id"], text=t(s["seller_id"],"payment_ok_seller",item=s["item_name"],dtype=s["delivery_type"]), parse_mode="Markdown")
+    await _payment_validated(s, context.bot)
     await q.edit_message_text(f"✅ Paiement validé — `{code}`.", parse_mode="Markdown")
 
 async def admin_pay_rej(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -790,9 +888,7 @@ async def cmd_cryptook(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage : /cryptook CODE"); return
     code = context.args[0].upper(); s = sessions.get(code)
     if not s: await update.message.reply_text("❌ Session introuvable."); return
-    s["status"] = "⏳ En attente de la livraison vendeur"
-    await context.bot.send_message(chat_id=s["buyer_id"],  text=t(s["buyer_id"],"payment_ok_buyer"), parse_mode="Markdown")
-    await context.bot.send_message(chat_id=s["seller_id"], text=t(s["seller_id"],"payment_ok_seller",item=s["item_name"],dtype=s["delivery_type"]), parse_mode="Markdown")
+    await _payment_validated(s, context.bot)
     await update.message.reply_text(f"✅ Crypto validé — `{code}`.", parse_mode="Markdown")
 
 # ══════════════════════════════════════════════
@@ -808,10 +904,8 @@ async def seller_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if s["status"] != "⏳ En attente de la livraison vendeur": return
 
     msg = update.message
-    if msg.document: di = {"type":"document","file_id":msg.document.file_id}
-    elif msg.photo:  di = {"type":"photo","file_id":msg.photo[-1].file_id}
-    elif msg.text:   di = {"type":"text","content":msg.text}
-    else: return
+    di  = store_delivery(msg)
+    if not di: return
 
     s["delivery_file"] = di
     s["status"]        = "🔍 En attente validation livraison"
@@ -826,6 +920,42 @@ async def seller_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg.reply_text(t(uid,"delivery_sent"), parse_mode="Markdown")
 
 # ══════════════════════════════════════════════
+#  ÉCHANGE — DÉPÔT DES 2 TECH
+# ══════════════════════════════════════════════
+
+async def handle_exchange_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid  = update.effective_user.id
+    code = user_sessions.get(uid)
+    if not code: return
+    s = sessions.get(code)
+    if not s: return
+
+    msg = update.message
+    di  = store_delivery(msg)
+    if not di: return
+
+    key = "buyer_delivery" if uid == s["buyer_id"] else "seller_delivery"
+    if s.get(key):
+        await msg.reply_text("⚠️ Ta tech est déjà déposée.")
+        return
+
+    s[key] = di
+    await msg.forward(chat_id=ADMIN_ID)
+    await msg.reply_text(t(uid,"exchange_deposited"), parse_mode="Markdown")
+
+    if s.get("buyer_delivery") and s.get("seller_delivery"):
+        s["status"] = "🔍 Échange en attente de validation"
+        await context.bot.send_message(chat_id=ADMIN_ID,
+            text=f"🔁 *Échange — les 2 tech sont déposées !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n{session_summary(s)}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅  Valider l'échange", callback_data=f"admin_ex_ok_{code}"),
+                InlineKeyboardButton("❌  Rejeter",           callback_data=f"admin_ex_rej_{code}"),
+            ]]))
+        await context.bot.send_message(chat_id=s["buyer_id"],  text=t(s["buyer_id"],"exchange_ready"), parse_mode="Markdown")
+        await context.bot.send_message(chat_id=s["seller_id"], text=t(s["seller_id"],"exchange_ready"), parse_mode="Markdown")
+
+# ══════════════════════════════════════════════
 #  ADMIN LIVRAISON
 # ══════════════════════════════════════════════
 
@@ -838,23 +968,56 @@ async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not s: await q.edit_message_text("❌ Session introuvable."); return
 
     s["status"] = "⏳ En attente adresse retrait vendeur"
-    buid = s["buyer_id"]; di = s.get("delivery_file",{}); cap = t(buid,"delivery_ok_buyer",item=s["item_name"])
-
-    if di.get("type")=="document":
-        await context.bot.send_document(chat_id=buid,document=di["file_id"],caption=cap,parse_mode="Markdown")
-    elif di.get("type")=="photo":
-        await context.bot.send_photo(chat_id=buid,photo=di["file_id"],caption=cap,parse_mode="Markdown")
-    elif di.get("type")=="text":
-        await context.bot.send_message(chat_id=buid,text=f"{cap}\n\n📝 *Contenu :*\n\n{di['content']}",parse_mode="Markdown")
+    buid = s["buyer_id"]; di = s.get("delivery_file",{}); cap = t(buid,"delivery_ok_buyer",item=esc(s["item_name"]))
+    await _send_delivery_to(context.bot, buid, di, cap)
 
     await context.bot.send_message(chat_id=buid, text=t(buid,"tx_complete_buyer"), parse_mode="Markdown")
 
     suid = s["seller_id"]
-    wp   = t(suid,"withdraw_crypto") if s["payment_method"]=="Crypto" else t(suid,"withdraw_paypal")
-    await context.bot.send_message(chat_id=suid,
-        text=f"🎉 *Livraison validée !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n💵 Tu vas recevoir *{fmt(s['seller_price'])} €*\n\n{wp}",
-        parse_mode="Markdown")
+    if s.get("seller_price", 0) > 0:
+        wp   = t(suid,"withdraw_crypto") if s["payment_method"]=="Crypto" else t(suid,"withdraw_paypal")
+        await context.bot.send_message(chat_id=suid,
+            text=f"🎉 *Livraison validée !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n💵 Tu vas recevoir *{fmt(s['seller_price'])} €*\n\n{wp}",
+            parse_mode="Markdown")
+    else:
+        # Échange → pas de retrait, session clôturée
+        s["status"] = "✅ Transaction complète"
+        await context.bot.send_message(chat_id=suid, text=t(suid,"tx_complete_seller"), parse_mode="Markdown")
     await q.edit_message_text(f"✅ Livraison validée — `{code}`.", parse_mode="Markdown")
+
+async def admin_ex_ok(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if q.from_user.id != ADMIN_ID:
+        await q.answer("❌",show_alert=True); return
+    await q.answer()
+    code = q.data.replace("admin_ex_ok_",""); s = sessions.get(code)
+    if not s: await q.edit_message_text("❌ Session introuvable."); return
+
+    buid = s["buyer_id"]; suid = s["seller_id"]
+    sdi  = s.get("seller_delivery",{}); bdi = s.get("buyer_delivery",{})
+
+    # La tech du vendeur part à l'acheteur, celle de l'acheteur part au vendeur
+    await _send_delivery_to(context.bot, buid, sdi, t(buid,"delivery_ok_buyer",item=esc(s["item_name"])))
+    await context.bot.send_message(chat_id=buid, text=t(buid,"tx_complete_buyer"), parse_mode="Markdown")
+    await _send_delivery_to(context.bot, suid, bdi, t(suid,"delivery_ok_buyer",item=esc(s["item_name"])))
+    await context.bot.send_message(chat_id=suid, text=t(suid,"tx_complete_seller"), parse_mode="Markdown")
+
+    s["status"] = "✅ Transaction complète"
+    await q.edit_message_text(f"✅ Échange validé — `{code}`.", parse_mode="Markdown")
+
+async def admin_ex_rej(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if q.from_user.id != ADMIN_ID:
+        await q.answer("❌",show_alert=True); return
+    await q.answer()
+    code = q.data.replace("admin_ex_rej_",""); s = sessions.get(code)
+    if not s: await q.edit_message_text("❌ Session introuvable."); return
+    s["status"] = "⏳ En attente des livraisons"
+    s["buyer_delivery"]  = None
+    s["seller_delivery"] = None
+    await context.bot.send_message(chat_id=s["buyer_id"],  text=t(s["buyer_id"],"delivery_rejected"), parse_mode="Markdown")
+    await context.bot.send_message(chat_id=s["seller_id"], text=t(s["seller_id"],"delivery_rejected"), parse_mode="Markdown")
+    await q.edit_message_text(f"❌ Échange rejeté — `{code}`.", parse_mode="Markdown")
 
 async def admin_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -884,11 +1047,11 @@ async def seller_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s["status"]           = "⏳ Retrait en cours"
     ml = "🪙 Crypto" if s["payment_method"]=="Crypto" else "💳 PayPal"
 
-    await update.message.reply_text(t(uid,"withdraw_ok",amount=fmt(s["seller_price"]),method=ml,address=address),parse_mode="Markdown")
+    await update.message.reply_text(t(uid,"withdraw_ok",amount=fmt(s["seller_price"]),method=ml,address=esc(address)),parse_mode="Markdown")
     await context.bot.send_message(chat_id=ADMIN_ID,
         text=(f"💸 *Retrait !*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-              f"🔑 `{code}`\n🧑‍💼 {s['seller_name']} | ID: `{s['seller_id']}`\n"
-              f"📲 {ml}\n📋 `{address}`\n💰 *{fmt(s['seller_price'])} €*"),
+              f"🔑 `{code}`\n🧑‍💼 {esc(s['seller_name'])} | ID: `{s['seller_id']}`\n"
+              f"📲 {ml}\n📋 `{esc(address)}`\n💰 *{fmt(s['seller_price'])} €*"),
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅  J'ai envoyé !", callback_data=f"admin_paid_{code}")]]))
 
@@ -1036,6 +1199,12 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if s["seller_id"] == uid and status == "⏳ En attente de la livraison vendeur":
         await seller_delivery(update, context); return
 
+    # Échange — dépôt des 2 tech (acheteur ET vendeur)
+    if s.get("is_exchange") and status == "⏳ En attente des livraisons":
+        if uid in (s["buyer_id"], s["seller_id"]):
+            await handle_exchange_delivery(update, context)
+        return
+
 async def back_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     uid  = q.from_user.id
@@ -1064,7 +1233,10 @@ def main():
         states={
             CHOOSE_LANG:        [CallbackQueryHandler(set_lang, pattern="^lang_")],
             BUY_ITEM_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, buy_item_name)],
-            BUY_DELIVERY_TYPE:  [CallbackQueryHandler(buy_delivery_type, pattern="^del_")],
+            BUY_DELIVERY_TYPE:  [
+                CallbackQueryHandler(buy_delivery_type, pattern="^del_"),
+                CallbackQueryHandler(buy_exchange_mode, pattern="^mode_exchange$"),
+            ],
             BUY_PRICE:          [MessageHandler(filters.TEXT & ~filters.COMMAND, buy_price)],
             BUY_PAYMENT_METHOD: [CallbackQueryHandler(buy_payment_method, pattern="^pay_")],
             BUY_CONDITIONS:     [
@@ -1098,6 +1270,8 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_approve,    pattern="^admin_approve_"))
     app.add_handler(CallbackQueryHandler(admin_reject,     pattern="^admin_reject_"))
     app.add_handler(CallbackQueryHandler(admin_paid,       pattern="^admin_paid_"))
+    app.add_handler(CallbackQueryHandler(admin_ex_ok,      pattern="^admin_ex_ok_"))
+    app.add_handler(CallbackQueryHandler(admin_ex_rej,     pattern="^admin_ex_rej_"))
 
     # Commandes admin
     app.add_handler(CommandHandler("cryptook",   cmd_cryptook))
